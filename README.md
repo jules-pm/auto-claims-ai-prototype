@@ -2,7 +2,7 @@
 
 A prototype of an AI-assisted auto insurance claims workflow. The carrier assesses damage by hand today; this product automates that middle of the claim and, more importantly, decides what to do with the result — routing each claim to the right human and learning from every correction.
 
-Built as a take-home for a Forward Deployed Product Manager role. The accompanying PRD is in [`PRD.md`](PRD.md).
+A prototype exploring how AI could be integrated into the auto insurance claims workflow. The accompanying PRD is in [`PRD.md`](PRD.md).
 
 ## What's real vs. simulated
 
