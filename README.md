@@ -1,81 +1,67 @@
 # Auto Claims AI — Prototype
 
-Prototype of an AI-powered orchestration layer for a top-10 US auto insurance carrier's claims platform. Built as a take-home for Scale AI's FDPM role.
+A prototype of an AI-assisted auto insurance claims workflow. The carrier assesses damage by hand today; this product automates that middle of the claim and, more importantly, decides what to do with the result — routing each claim to the right human and learning from every correction.
 
-## What this is
+Built as a take-home for a Forward Deployed Product Manager role. The accompanying PRD is in [`PRD.md`](PRD.md).
 
-The carrier already has commodity AI for raw photo-to-estimate damage detection (e.g., CCC Estimate-STP, Tractable). This prototype is the **orchestration layer on top**:
+## What's real vs. simulated
 
-- AI runs damage assessment automatically on claim arrival — no human triggers it (the claims agent role is automated for the standard case)
-- Routing engine sends claims to the right reviewer based on confidence, dollar value, supplement risk, total-loss threshold, and fraud advisory
-- **Senior claims adjuster** is always the human-in-the-loop final approver
-- **Claims agent** still reviews exception cases (medium confidence, supplement risk, claims requiring more photos) — they are the first-human checkpoint before the adjuster
-- Each AI output ships with structured rationale, per-finding supplement risk, total-loss advisory, and fraud advisory (advisory only — humans always initiate SIU referral)
+- **Real:** the damage assessment is a live call to **Claude Sonnet** vision. It looks at the actual photo, identifies the damaged areas, prices them, scores its own confidence, and flags hidden-damage / total-loss / fraud risk — using structured tool-use so the output is always in a fixed schema.
+- **Simulated:** there's no live integration with a commodity vendor (CCC/Tractable) or a real cost database (Mitchell/Audatex). Claude approximates the priced estimate those would return. Routing thresholds are placeholder values. These are named as production integrations in the PRD.
 
-The prototype demonstrates the agent + adjuster review surfaces via a persona toggle.
+## The flow
 
-## Stack
+1. **Report a claim (intake).** The claims agent captures policy + accident details and the policyholder's photos. This is the existing manual step, before automation — so it's labeled that way in the UI.
+2. **Automatic AI assessment.** On submission, the assessment runs on its own (no "run AI" button — the trigger is the claim arriving). It produces an itemized, priced estimate with per-line confidence and cost basis.
+3. **Confidence-based routing.** The claim is sent to the senior adjuster (high confidence), the claims agent for exception review (medium confidence / hidden-damage risk), or flagged for the adjuster (potential total loss / fraud).
+4. **Human review.** Agent or adjuster reviews the estimate line by line — confirming what's right, correcting what's off (with an optional tag for *why* the AI missed). Every confirmation and correction is logged as labeled data for model eval.
+5. **Decision + audit trail.** Approve, return, escalate, or refer to SIU. Every step is recorded in a per-claim audit timeline, attributed to the AI, the agent, or the adjuster.
 
-- Next.js 16 (App Router) + TypeScript + Tailwind CSS
-- Anthropic SDK + Claude Sonnet 4.6 (vision)
-- Server-side API route for the vision call; client-side localStorage for user-uploaded claims
+The two personas (claims agent, senior adjuster) each have their own sidebar queue and toggle in the top bar.
 
-## Run locally
+## Run it locally
 
 ```bash
 npm install
-cp .env.example .env.local
-# Edit .env.local and paste your Anthropic API key
+cp .env.example .env.local      # then add your Anthropic API key
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open http://localhost:3000.
 
-## Demo walkthrough
+You'll need an `ANTHROPIC_API_KEY` from [console.anthropic.com](https://console.anthropic.com). The live assessment uses Claude Sonnet vision; pre-loaded claims already have assessments, so the API is only called when you submit a new claim through **Report a claim**.
 
-1. **Queue view** — landing page. Pre-loaded with four seed claims demonstrating different routing outcomes:
-   - **CLM-2026-0604-B** (Toyota Camry, mirror knock-off) — high confidence + low dollar → auto-routed past the agent, straight to senior adjuster
-   - **CLM-2026-0605-A** (Honda Civic, rear-end) — medium confidence + supplement risk → routed to claims agent for review first
-   - **CLM-2026-0604-C** (Nissan Sentra, front-end collision with tree) — potential total loss (92% repair-to-ACV ratio) → routed to senior adjuster with total-loss advisory
-   - **CLM-2026-0603-D** (Chevrolet Malibu, suspect hit-and-run) — fraud advisory triggered (image inconsistency + damage pattern mismatch) → routed to senior adjuster with SIU-referral option
-2. **Persona toggle** — top right. Switch between Senior Adjuster and Claims Agent to see which claims are in your queue and what actions are available on each claim's detail page.
-3. **Simulate new claim arrival** — top right. Upload a damage photo + fill claim metadata. Triggers a live Claude Sonnet vision call. Result populates the claim record and routes per the AI's recommendation.
-4. **Claim detail** — click into any claim. AI assessment with per-area findings, confidence, supplement risk, fraud/total-loss advisories, and persona-adaptive decision controls (approve, return, escalate, refer to SIU).
+> **Note:** Next.js loads `.env.local` automatically. If the assessment returns an auth error, restart the dev server after adding the key.
+
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind CSS
+- `@anthropic-ai/sdk` — Claude Sonnet vision with structured tool-use output
+- Server-side API route for the vision call; client-side state for claims created during a session
 
 ## Project structure
 
 ```
 src/
   app/
-    api/assess/route.ts       Vision API route (server-side Claude Sonnet vision call)
-    claim/[id]/page.tsx       Claim detail page
-    page.tsx                  Claims queue (landing)
-    layout.tsx                Root layout
+    api/assess/route.ts     Live Claude Sonnet vision call (structured output)
+    intake/page.tsx         "Report a claim" intake form
+    claim/[id]/page.tsx     Claim detail — assessment, review, decision
+    page.tsx                Queue (agent / adjuster)
   components/
-    QueuePage.tsx             Queue table + persona-aware filtering
-    ClaimDetail.tsx           Per-claim view + adaptive decision panel
-    UploadClaimDialog.tsx     Simulate-new-claim modal + live vision call
-    PersonaToggle.tsx         Agent/Adjuster role switcher
+    QueuePage.tsx           Persona queue + filters
+    Sidebar.tsx             Per-persona navigation + counts
+    ClaimDetail.tsx         Assessment, confirm/correct, routing, audit timeline
+    IntakeForm.tsx          Claim intake (policy, accident, photo)
+    FlowSteps.tsx           Intake → AI → Agent → Adjuster → Decision progress
+    TopBar.tsx / PersonaToggle.tsx
   data/
-    types.ts                  Claim, Persona, Assessment, status types
-    claims.ts                 Seed claim records with pre-computed AI assessments
-  lib/
-    storage.ts                localStorage for user-uploaded claims
-    format.ts                 Display helpers
+    claims.ts               Seed claims (pre-assessed) covering each routing path
+    samples.ts              Sample damage photos + matching metadata for intake
+    types.ts
+public/damage/              Damage photos (Wikimedia Commons; see ATTRIBUTION.md)
 ```
 
-## What's NOT in v1 (described in PRD)
+## Damage photos
 
-- Total-loss valuation (vehicle market-data integration: Manheim / MMR / Black Book)
-- Multi-claim adjuster workload queue + assignment
-- Adjuster productivity dashboard
-- Bias monitoring dashboard (eval cuts by vehicle tier, claimant segment)
-- Cost database integration (Mitchell / CCC / Audatex line-item rates) — v1 uses model judgment against the carrier's commodity vendor; v2 brings in normalized line-item lookups
-- ADAS/EV-aware estimating depth
-- Claimant-facing comms / status updates
-
-These are intentionally scoped out per the prompt's "core workflow only, describe the rest in the PRD" instruction.
-
-## License
-
-Take-home submission for Scale AI evaluation. Not for production use.
+Real photos from Wikimedia Commons under free licenses, used for demonstration. Attribution in [`public/damage/ATTRIBUTION.md`](public/damage/ATTRIBUTION.md). Each seed claim's metadata honestly matches its photo.

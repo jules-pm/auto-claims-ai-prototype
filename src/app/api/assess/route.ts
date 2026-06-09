@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIAssessment } from "@/data/types";
 
-const client = new Anthropic();
-
 const assessmentTool = {
   name: "submit_assessment",
   description:
@@ -14,7 +12,7 @@ const assessmentTool = {
       findings: {
         type: "array",
         description:
-          "One entry per distinct damage area visible in the photos. Be specific about location (e.g., 'front bumper cover, driver side' not 'front').",
+          "The most material damage areas only — at most 5, fewer when damage is contained. Group related sub-damage into one finding. Be specific about location (e.g., 'front bumper cover, driver side' not 'front').",
         items: {
           type: "object",
           properties: {
@@ -54,7 +52,45 @@ const assessmentTool = {
             },
             rationale: {
               type: "string",
-              description: "One sentence explaining the call.",
+              description: "ONE short sentence explaining the call. No more.",
+            },
+            costBreakdown: {
+              type: "object",
+              description:
+                "How the estimatedCost was built against a standardized repair-cost database — the same way a claims agent would, but automated.",
+              properties: {
+                partType: {
+                  type: "string",
+                  enum: ["OEM", "aftermarket", "n/a"],
+                  description:
+                    "OEM for safety/structural parts, aftermarket where carrier policy allows, n/a for labor-only repairs.",
+                },
+                partsCost: {
+                  type: "number",
+                  description: "Parts cost in USD (0 for labor-only repairs).",
+                },
+                laborHours: {
+                  type: "number",
+                  description: "Estimated labor hours for this line item.",
+                },
+                laborRate: {
+                  type: "number",
+                  description:
+                    "Regional labor rate $/hr (typical US body shop: $50–$65/hr).",
+                },
+                costSource: {
+                  type: "string",
+                  description:
+                    "The reference database/manual this line item is priced against, e.g. 'Mitchell APD line-item', 'CCC ONE', 'Audatex', or 'carrier rate sheet'.",
+                },
+              },
+              required: [
+                "partType",
+                "partsCost",
+                "laborHours",
+                "laborRate",
+                "costSource",
+              ],
             },
           },
           required: [
@@ -66,6 +102,7 @@ const assessmentTool = {
             "confidence",
             "supplementRisk",
             "rationale",
+            "costBreakdown",
           ],
         },
       },
@@ -119,7 +156,7 @@ const assessmentTool = {
       rationale: {
         type: "string",
         description:
-          "Overall narrative reasoning for the assessment — what the photos show, what is and isn't certain, what a human reviewer should focus on.",
+          "ONE or two sentences: what the photos show, what's uncertain, what the human should focus on. Concise.",
       },
     },
     required: [
@@ -142,9 +179,10 @@ You replace the claims agent's manual review step for the standard case. For exc
 
 You are advisory. You do NOT make final approval, denial, or fraud-referral decisions. Humans make those calls. Your job is to give them an accurate, defensible starting point.
 
-When estimating costs:
-- Use typical US auto repair cost schedules (Mitchell, CCC, Audatex line-item rates) as your mental reference
-- Parts + labor. Standard regional labor rates.
+When estimating costs (this replaces the manual step where a claims agent consults a standardized repair-cost database):
+- For each finding, build the estimate the way an agent would against Mitchell / CCC / Audatex: parts cost + labor hours × regional labor rate.
+- Fill in costBreakdown for every finding: partType (OEM for safety/structural parts, aftermarket where allowed, n/a for labor-only), partsCost, laborHours, laborRate ($50–$65/hr typical), and the costSource database you priced against.
+- estimatedCost should equal roughly partsCost + (laborHours × laborRate).
 - Be honest about what you can and cannot see from photos. Photo limitations are a real source of supplement risk.
 
 When flagging supplement risk:
@@ -155,6 +193,12 @@ When flagging supplement risk:
 When considering fraud:
 - Look for: damage pattern that does not match the described accident, age-of-damage inconsistencies (e.g., rust at scratch edges on supposedly fresh damage), image artifacts suggesting editing, claimed mechanism vs. visible evidence mismatches
 - Flag as advisory only. Humans decide on SIU referral.
+
+BREVITY (important — this output is reviewed by a busy human in a queue, and speed matters):
+- Report only the most material damage areas: at most 4 findings, fewer when the damage is contained. Group related sub-damage into one finding rather than listing every component.
+- Every "rationale" field (per-finding and overall) must be ONE short sentence. No paragraphs.
+- "routeRationale" must be one short sentence.
+- Do not over-explain. Be decisive and terse.
 
 You MUST call the submit_assessment tool with your structured output. Do not respond in prose.`;
 
@@ -201,9 +245,21 @@ export async function POST(req: NextRequest) {
 
 Analyze the photo against the claim context and call submit_assessment with your structured output.`;
 
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            "ANTHROPIC_API_KEY is not set on the server. Add it to .env.local and restart the dev server.",
+        },
+        { status: 500 }
+      );
+    }
+    const client = new Anthropic({ apiKey });
+
     const response = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: 1600,
       system: SYSTEM_PROMPT,
       tools: [assessmentTool],
       tool_choice: { type: "tool", name: "submit_assessment" },

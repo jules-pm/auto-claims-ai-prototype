@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Claim } from "@/data/types";
 import { getUserClaims } from "@/lib/storage";
-import { statusLabel, statusColor, usd, pct, shortDateTime } from "@/lib/format";
-import { PersonaToggle, getPersonaFromSearch } from "@/components/PersonaToggle";
-import { UploadClaimDialog } from "@/components/UploadClaimDialog";
+import { statusLabel, statusColor, usd, pct } from "@/lib/format";
+import { getPersonaFromSearch } from "@/components/PersonaToggle";
+import { TopBar } from "@/components/TopBar";
+import { Sidebar, getActiveFilter } from "@/components/Sidebar";
+import { FlowSteps } from "@/components/FlowSteps";
 
 export function QueuePage({ seedClaims }: { seedClaims: Claim[] }) {
   const searchParams = useSearchParams();
@@ -20,195 +22,200 @@ export function QueuePage({ seedClaims }: { seedClaims: Claim[] }) {
     setMounted(true);
   }, []);
 
-  const allClaims = [...userClaims, ...seedClaims];
+  const userById = new Map(userClaims.map((c) => [c.id, c]));
+  const allClaims: Claim[] = [
+    ...userClaims,
+    ...seedClaims.filter((c) => !userById.has(c.id)),
+  ];
 
-  const isPersonaActionable = (claim: Claim): boolean => {
-    if (claim.status === "AGENT_REVIEW") return persona === "agent";
-    if (
-      claim.status === "ADJUSTER_REVIEW_AUTO_ROUTED" ||
-      claim.status === "ADJUSTER_REVIEW_POST_AGENT"
-    )
-      return persona === "adjuster";
-    return false;
-  };
+  const activeFilter = getActiveFilter(persona, searchParams.get("filter"));
+  const queue = allClaims.filter(activeFilter.predicate);
 
-  const yourQueue = allClaims.filter(isPersonaActionable);
-  const otherClaims = allClaims.filter((c) => !isPersonaActionable(c));
+  // Only show the "Start review" walk-through on actionable queues.
+  const actionable = ["needs-review", "needs-approval", "flagged", "fast-track"];
+  const showStartReview = actionable.includes(activeFilter.id) && queue.length > 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <header className="mb-8 flex items-start justify-between gap-6">
-        <div>
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Auto Claims AI — Prototype
-          </div>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-100">
-            Claims queue
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            AI runs damage assessment automatically on every claim arrival.
-            Routing splits high-confidence claims directly to the senior
-            adjuster, and routes flagged claims (medium confidence, supplement
-            risk, potential total loss, fraud advisory) through the claims
-            agent first.
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-3">
-          <PersonaToggle />
-          <UploadClaimDialog
-            onCreated={(claim) =>
-              setUserClaims((prev) => [claim, ...prev.filter((c) => c.id !== claim.id)])
-            }
-          />
-        </div>
-      </header>
+    <div className="flex min-h-screen flex-col">
+      <TopBar />
+      <div className="flex flex-1">
+        <Sidebar persona={persona} allClaims={allClaims} />
+        <main className="flex-1 px-6 py-6 md:px-8">
+          <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-slate-500">
+                {persona === "agent" ? "Claims agent" : "Senior adjuster"}
+              </div>
+              <h1 className="mt-0.5 text-xl font-semibold text-slate-100">
+                {activeFilter.label}
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  {queue.length}
+                </span>
+              </h1>
+            </div>
+            <div className="flex items-center gap-2">
+              {persona === "agent" && (
+                <Link
+                  href="/intake"
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+                >
+                  + Report a claim
+                </Link>
+              )}
+              <span className="text-xs text-slate-500">Sort:</span>
+              <span className="rounded border border-slate-800 px-2 py-1 text-xs text-slate-300">
+                Most recent
+              </span>
+            </div>
+          </header>
 
-      <Section
-        title={
-          persona === "agent"
-            ? "Your queue — agent review"
-            : "Your queue — adjuster review"
-        }
-        subtitle={
-          persona === "agent"
-            ? "AI flagged these for first-human review before they go to the adjuster."
-            : "High-confidence claims auto-routed past the agent, plus agent-signed-off claims awaiting final approval."
-        }
-        claims={yourQueue}
-        persona={persona}
-        empty={
-          <p className="text-sm text-slate-500">
-            No claims in your queue at this moment.
-          </p>
-        }
-      />
+          {showStartReview && (
+            <div className="mb-5 flex items-center justify-between rounded-lg border border-slate-800 bg-gradient-to-r from-blue-500/10 to-transparent px-4 py-3">
+              <div>
+                <div className="text-sm font-medium text-slate-100">
+                  {queue.length} claim{queue.length === 1 ? "" : "s"} in this queue
+                </div>
+                <div className="mt-0.5 text-xs text-slate-400">
+                  {persona === "agent"
+                    ? "Walk through each claim, review the AI's draft, decide and move on."
+                    : "Walk through each claim, approve the estimate, return for more info, or refer to SIU."}
+                </div>
+              </div>
+              <Link
+                href={{
+                  pathname: `/claim/${queue[0].id}`,
+                  query: {
+                    persona,
+                    queue: queue.map((c) => c.id).join(","),
+                  },
+                }}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+              >
+                Start review →
+              </Link>
+            </div>
+          )}
 
-      <Section
-        title="Other claims in the system"
-        subtitle="Visible for context. Actions available when you switch personas."
-        claims={otherClaims}
-        persona={persona}
-        muted
-      />
-
-      {!mounted && (
-        <p className="mt-8 text-xs text-slate-600">Loading user-uploaded claims…</p>
-      )}
+          {queue.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950 px-6 py-12 text-center">
+              <p className="text-sm text-slate-500">
+                {mounted
+                  ? "No claims match this filter."
+                  : "Loading queue…"}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {queue.map((claim) => (
+                <ClaimCard key={claim.id} claim={claim} persona={persona} />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
 
-function Section({
-  title,
-  subtitle,
-  claims,
+function ClaimCard({
+  claim,
   persona,
-  muted,
-  empty,
 }: {
-  title: string;
-  subtitle: string;
-  claims: Claim[];
+  claim: Claim;
   persona: "agent" | "adjuster";
-  muted?: boolean;
-  empty?: React.ReactNode;
 }) {
+  const a = claim.assessment;
+  const flags = a
+    ? [
+        a.potentialTotalLoss
+          ? { tone: "violet" as const, label: "Potential total loss" }
+          : null,
+        a.fraudAdvisory.triggered
+          ? { tone: "rose" as const, label: "Fraud advisory" }
+          : null,
+        a.findings.some((f) => f.supplementRisk === "high")
+          ? { tone: "amber" as const, label: "Supplement risk" }
+          : null,
+      ].filter(Boolean)
+    : [{ tone: "blue" as const, label: "AI assessing" }];
+
   return (
-    <section className={`mb-10 ${muted ? "opacity-70" : ""}`}>
-      <div className="mb-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
-          {title}
-        </h2>
-        <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-      </div>
-      {claims.length === 0 ? (
-        empty ?? null
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-800">
-          <table className="min-w-full divide-y divide-slate-800 text-sm">
-            <thead className="bg-slate-900/60 text-left text-xs uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-4 py-2 font-medium">Claim</th>
-                <th className="px-4 py-2 font-medium">Vehicle</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">AI confidence</th>
-                <th className="px-4 py-2 font-medium">Est. total</th>
-                <th className="px-4 py-2 font-medium">Flags</th>
-                <th className="px-4 py-2 font-medium">Received</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60 bg-slate-950">
-              {claims.map((claim) => (
-                <tr
-                  key={claim.id}
-                  className="hover:bg-slate-900/50 transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={{
-                        pathname: `/claim/${claim.id}`,
-                        query: { persona },
-                      }}
-                      className="text-slate-100 hover:text-blue-400"
-                    >
-                      <div className="font-medium">{claim.id}</div>
-                      <div className="text-xs text-slate-500">
-                        {claim.claimantName}
-                      </div>
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">
-                    <div>
-                      {claim.vehicle.year} {claim.vehicle.make}{" "}
-                      {claim.vehicle.model}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      ACV {usd(claim.vehicle.acv)}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center rounded px-2 py-0.5 text-xs ring-1 ring-inset ${
-                        statusColor[claim.status]
-                      }`}
-                    >
-                      {statusLabel[claim.status]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">
-                    {claim.assessment
-                      ? pct(claim.assessment.overallConfidence)
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">
-                    {claim.assessment
-                      ? usd(claim.assessment.totalEstimate)
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {claim.assessment?.potentialTotalLoss && (
-                        <Flag tone="violet">Total loss?</Flag>
-                      )}
-                      {claim.assessment?.fraudAdvisory.triggered && (
-                        <Flag tone="rose">Fraud advisory</Flag>
-                      )}
-                      {claim.assessment?.findings.some(
-                        (f) => f.supplementRisk === "high"
-                      ) && <Flag tone="amber">Supplement risk</Flag>}
-                      {!claim.assessment && <Flag tone="blue">Processing</Flag>}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {shortDateTime(claim.receivedAt)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <Link
+      href={{
+        pathname: `/claim/${claim.id}`,
+        query: { persona },
+      }}
+      className="group block overflow-hidden rounded-lg border border-slate-800 bg-slate-950 transition-all hover:border-slate-600 hover:bg-slate-900/40 hover:shadow-lg hover:shadow-blue-500/5"
+    >
+      <div className="flex gap-4 p-4">
+        {/* Photo */}
+        <div className="h-20 w-28 flex-shrink-0 overflow-hidden rounded bg-slate-900 ring-1 ring-slate-800">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={claim.photos[0]}
+            alt={`Claim ${claim.id}`}
+            className="h-full w-full object-cover"
+          />
         </div>
-      )}
-    </section>
+
+        {/* Main info */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="font-mono text-sm font-medium text-slate-100 group-hover:text-blue-400">
+                  {claim.id}
+                </div>
+                <span
+                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider ring-1 ring-inset ${
+                    statusColor[claim.status]
+                  }`}
+                >
+                  {statusLabel[claim.status]}
+                </span>
+              </div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                {claim.claimantName} · {claim.vehicle.year} {claim.vehicle.make}{" "}
+                {claim.vehicle.model} · ACV {usd(claim.vehicle.acv)}
+              </div>
+              <div className="mt-1 text-xs text-slate-400 italic truncate">
+                {claim.accident.description}
+              </div>
+            </div>
+            <div className="text-right">
+              {a ? (
+                <>
+                  <div className="text-base font-semibold text-slate-100">
+                    {usd(a.totalEstimate)}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                    {pct(a.overallConfidence)} confidence
+                  </div>
+                </>
+              ) : (
+                <div className="text-[11px] text-blue-300">Processing…</div>
+              )}
+            </div>
+          </div>
+
+          {flags.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {flags.map((flag, i) =>
+                flag ? (
+                  <Flag key={i} tone={flag.tone}>
+                    {flag.label}
+                  </Flag>
+                ) : null
+              )}
+            </div>
+          )}
+
+          <div className="mt-2.5 border-t border-slate-800/60 pt-2.5">
+            <FlowSteps status={claim.status} />
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 }
 

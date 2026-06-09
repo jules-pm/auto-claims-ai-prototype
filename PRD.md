@@ -1,86 +1,80 @@
-# PRD — Auto Claims AI Orchestration Layer
+**Problem**  
+   
+Auto claims are slow, expensive, and inaccurate. Most of the cost lives between intake and decision, where adjusters review damage, write estimates, and get approval.¹ First estimates miss often enough that \~40% of claims get supplemented later,² repairs drag on for weeks,³ and the industry loses 7-14¢ per $ to leakage.⁴ Customers feel it too – 4 in 5 policyholders with a bad claims experience say they'll switch carriers.⁵  
+   
+**Vision & Goals**  
+   
+Reading a damage photo and pricing it is now a commodity: CCC's estimating AI runs at 7 of the 10 largest US carriers,⁶ and Tractable powers GEICO, The Hartford, and American Family.⁷ The opportunity is in the workflow around the estimate: which claims to auto-clear, which need a human, which look like fraud, and how to learn from adjusters’ experience.
 
-**Author:** Jules Guito · **Date:** June 8, 2026 · **Audience:** Carrier product + engineering leadership · **Status:** v1 proposal
+The workflow today is manual: an agent collects photos, sizes the damage, and writes the estimate from cost manuals and experience. We will automate those steps and decide what to do with the result. The assessment engine is swappable (CCC, Tractable, or a frontier vision model like the one in this prototype) so our effort goes into the layer on top: clear the straightforward claims faster and cheaper; and keep a HITL on high-risk decisions.
 
----
+When a claim comes in, AI assesses the damage and a confidence-based router sends it on: clean, high-confidence claims go to the adjuster to approve; uncertain ones to a claims agent; high-stakes ones (total loss or fraud) to the adjuster. At a large carrier the user is two roles (1) a frontline agent handling intake & exceptions, and (2) a senior adjuster giving approval. The MVP builds for both. Post-MVP, we will evaluate how much more we can safely automate. 
 
-## Problem
+**User Stories**
 
-U.S. auto insurers lose money and customers in the middle of the claims workflow — the desk-side stretch between damage documentation and repair authorization, where ~80% of adjuster handling time is spent (Five Sigma 2023: 17.4% damage assessment + 62.3% assessment-to-payment). That manual middle produces inaccurate first estimates supplemented on **~40% of claims** (Mitchell APD 2017–2018) and contributes to claims leakage of **7–14% of total P&C claims spend** (EY 2025), while pushing average repair cycle times to **22.3 days** (J.D. Power 2024) — long enough that **80% of customers with a poor claims experience have left or plan to leave their carrier** (J.D. Power 2024) and claim-handling delays are now the **#1 category of consumer complaints to state regulators** (ValuePenguin/NAIC 2024). McKinsey estimates AI can compress 25–40% of total claims handling expense (McKinsey 2021), but the incumbent vendor stack (**CCC Estimate-STP at 7 of the top 10 US carriers; Tractable at GEICO, The Hartford, American Family**) has commoditized photo-to-estimate computer vision **without solving the orchestration problem**: confidence-scored triage, explainable estimates that know when to escalate, and an Approval and Authorization layer that catches the fraud and supplement risk that today's **1.8% SIU referral rate** (CAIF/SAS 2020) is missing.
+**Claims agent (primary user):**
 
-## Vision
+* Intake: As a claims agent, I want to submit the first report and have the AI assessment run on its own, so that I never write the estimate from scratch.
 
-Build the orchestration layer that sits on top of the carrier's commodity damage-vision stack and compresses the middle of the claims workflow. AI runs damage assessment automatically on claim arrival. Confidence-gated routing sends the standard case directly to the senior adjuster, the exception cases to the claims agent for first-human review, and the high-risk cases (potential total loss, fraud advisory) to the adjuster with structured advisories. The agent role compresses, the adjuster role gets leverage, and every HITL decision becomes labeled data that earns the next round of automation. v1 ships full HITL through the senior adjuster; v2 considers expanding automation at the adjuster step based on production data — not assumption.
+* Review: As a claims agent, I want to review a flagged estimate line by line, fixing what's wrong, so the final estimate is accurate and every correction improves the tool.
 
-## User Stories
+* Action: As a claims agent, I want to route a claim to the adjuster, back to the policyholder for more photos, or out for an in-person inspection \- so that it moves to the right place.
 
-**Senior claims adjuster (HITL final approver)**
-- As a senior adjuster, when a claim arrives in my queue I see a populated AI assessment (per-area findings, costs, confidence, advisories) and can approve, edit, return, escalate, or refer to SIU in one click — so I am deciding on a fully-prepared case, not reconstructing one.
-- As a senior adjuster, when an AI estimate is flagged for potential total loss, I see the repair-to-ACV ratio and advisory inline — so I can route the claim to the total-loss path without recomputing the math.
-- As a senior adjuster, when an AI fraud advisory triggers, I see the specific indicators (image inconsistency, pattern mismatch, missing police report) and can refer to SIU directly — so suspect claims that today slip past manual review become detectable at the natural injection point.
+**Senior adjuster (signs off):**
 
-**Claims agent (exception reviewer)**
-- As a claims agent, when AI confidence is medium or supplement risk is high, the claim routes to me with the AI's draft assessment and rationale — so my job is to review and decide, not to write the estimate from scratch.
-- As a claims agent, when photos don't fully support a confident assessment, I can return the claim to the claimant for additional photos — so we improve the next assessment without burning adjuster time on a low-confidence pass.
-- As a claims agent, I only see the cases that genuinely need a human first checkpoint — so my workload shrinks and concentrates on judgment calls, not from-scratch review.
+* Decisioning: As a senior adjuster, I want a claim to open with the full assessment done so that I can approve, edit, send back, escalate, or refer to fraud investigation in one click.
 
-## Key Features (v1, in priority order)
+* Risk Alerts: As a senior adjuster, I want a likely total loss or fraud concern called out at the top with the specific reason, so that I can focus on the decisions that carry real risk.
 
-**P0 — Core orchestration**
-1. **Automatic AI assessment on claim arrival.** Event-driven trigger when claim record + photos land in the system. No human kicks it off. Replaces the agent's manual review step for the standard case.
-2. **Confidence-scored damage assessment.** Per-area findings (location, damage type, severity, repair-vs-replace, estimated cost) each with a per-finding confidence score; overall claim confidence aggregated. Output ships with structured rationale — auditable and regulator-defensible.
-3. **Routing engine.** Confidence + dollar value + supplement risk + total-loss flag + fraud flag determine routing target: senior adjuster fast-track (high conf + low $), senior adjuster standard review, claims agent exception queue, or specialist paths (field appraiser, additional-photo request).
-4. **Senior adjuster review surface.** Pre-populated estimate, AI rationale, advisories, decision history. Single-click approve/edit/return/escalate. Always the final HITL.
+**Key Features & Prioritization (MVP)**
 
-**P1 — Advisory signals (built on the same assessment pass, no separate model)**
-5. **Supplement risk score per finding.** High/medium/low based on photo angle and damage pattern. Direct attack on the ~40% supplement rate.
-6. **Potential total loss advisory.** When repair-estimate-to-ACV ratio crosses state-level threshold (~70–80%), output flags the claim and routes to senior adjuster with the ratio surfaced. Adjuster makes the call. Full total-loss valuation is v2.
-7. **Fraud advisory + SIU referral surface.** AI surfaces inconsistency signals (image artifact, damage pattern mismatch, age-of-damage anomalies). Adjuster reviews and decides on SIU referral from the approval UI. Advisory only — humans always initiate. Connects to a ~$45B/year P&C fraud problem (CAIF 2022) at the natural injection point.
+| \# | Feature | What it does | Tier |
+| ----- | ----- | ----- | ----- |
+| 1 | Automatic assessment | The AI assesses the claim the moment it lands; for a standard claim, the agent's manual review step disappears. | ***Core*** |
+| 2 | Itemized, priced estimate | Part-and-labor cost for damage, priced against a standard repair-cost database (Mitchell, CCC, Audatex) or carrier's rate sheet, with the AI's confidence & reasoning. Automates manual cost lookup and keeps a record for disputes. | ***Core*** |
+| 3 | Confidence- based router | A rule set — confidence, dollar amount, hidden-damage or fraud risk, nearness to total loss — sends each claim to the adjuster, to the agent for review, or out to a specialist. | ***Core*** |
+| 4 | Review screen | Agent or adjuster sees the full estimate, the AI's reasoning, and the flags, and confirms or corrects it before deciding. | ***Core*** |
+| 5 | Hidden- damage risk | A low/medium/high flag for the chance the shop finds more on teardown — aimed directly at the 40% supplement rate. | ***Differentiator*** |
+| 6 | Possible total loss | Flags when the estimate nears the car's value (70–80% most states use). Flag only; full valuation is a later release. | ***Differentiator*** |
+| 7 | Fraud concern | Surfaces what doesn't add up — damage that doesn't match the story, no police report, a shop that keeps reappearing.  | ***Differentiator*** |
+| 8 | Learning loop | Every confirmation and correction is logged and sorted by claim type — the basis for automating more over time. | ***Differentiator*** |
 
-**P2 — Eval feedback loop (instrumentation, not user-facing)**
-8. **Disagreement capture.** Every adjuster edit, return, and override logged at field level. Tracked by confidence band, damage type, vehicle tier, dollar bucket. Feeds Phase 2 threshold tuning.
+**Rationale:** Features 1-4 are the core workflow. Features 5-8 are where we win: the commodity vendors solved the estimate but not the workflow around it. The learning loop (8) determines whether more can be automated in post-MVP. 
 
-**Prioritization rationale:** P0 features are the architectural backbone — without them the product doesn't exist. P1 features are the differentiation against the commodity vendor stack (CCC, Tractable, Mitchell, Audatex have largely commoditized P0 but not P1). P2 is instrumentation that earns the next product cycle.
+**Success Metrics**
 
-## Success Metrics
+**Primary**
 
-**Hero metric (the single number leadership will see)**
-- **Cycle time, our slice only:** median + p90 days from *claim received by carrier* → *authorization issued*. NOT full claim-to-settlement (excludes shop time we don't own).
+* Cycle time (claim arrival → repair authorized) \- the speed the product directly controls. Excludes claim-to-payout, since the body shop owns most of that.
 
-**Guardrails (must not regress as the hero improves)**
-- Supplement rate (proxy: estimate accuracy)
-- Adjuster-overturn rate on AI-recommended approvals (proxy: decision quality)
-- CSAT for our touchpoints (proxy: experience quality)
+**Balancing** — can't slip while cycle time improves
 
-**Business impact (lagging, supports the case)**
-- Adjuster productivity: claims processed per adjuster per month
-- Leakage $ saved: longitudinal proxy via supplement-rate reduction × average supplement value
+* Supplement rate — are the estimates accurate?  
+* Adjuster overturn rate on AI-recommended approvals — are the decisions sound?  
+* Customer satisfaction — ensuring customer satisfaction doesn’t slip.
 
-**Why this structure:** the hero is gameable in isolation (faster cycles by skimping on review). The guardrails close that hole. The business-impact numbers translate to executive language for ongoing budget.
+**Business impact** — the slower numbers the carrier ultimately cares about
 
-## AI Integration & Human-AI Interaction
+* Claims handled per adjuster — ops throughput; the efficiency gain that justifies spend.  
+* Dollars of leakage recovered — the 7-14¢-on-the-dollar problem, reclaimed.
 
-**High-level approach.** We do **not** build the damage vision model. We orchestrate. The carrier integrates a commodity vendor (CCC Estimate-STP, Tractable, or Mitchell-platform partner) for raw photo-to-estimate. Our system layers on top of that vendor's output to apply: structured-output enforcement (every assessment ships with confidence, rationale, supplement risk, total-loss check, fraud signal), a rules-engine pass for repair-cost validation against the carrier's negotiated line-item rates, and the routing engine that decides who reviews next. **The v1 prototype uses Claude Sonnet 4.6 vision directly as the assessment model** — this is the prototype substitute for the commodity vendor in production. The architectural separation between "assessment engine" and "orchestration layer" is what lets us swap vendors without rewriting the workflow.
+**AI Integration and the Human–AI Handoff**  
+   
+We treat the assessment engine as an input, not the product – the value is the layer we build around it. Every estimate is priced against an authoritative cost database (Mitchell, Audatex, the carrier's rate sheet) so it holds up to a regulator. On top of that, we normalize what the engine returns, score our own confidence, and generate the signals the router needs (hidden damage, total loss, fraud) that a raw estimate won't surface. Carrier rules are versioned and configurable, not hardcoded, so a carrier can swap engines without touching anything above. And we don't let the router make a real call until we’ve built confidence with the live adjusters using it.
 
-**Human-AI interaction principles**
-- **AI never auto-denies.** Confidence-threshold routing only auto-*approves*. Every denial requires a human with written rationale. Asymmetric thresholds (high bar to deny, lower bar to approve).
-- **AI never auto-refers to SIU.** Fraud signals surface as advisories with rationale. SIU referral is human-initiated, always.
-- **AI ships explainability with every assessment.** Per-finding rationale, confidence factors, cost basis. Auditable for regulators; defensible for contested claims.
-- **HITL is the eval surface.** Adjuster overturns, edits, and returns are labeled data. We instrument from day one. The Phase 2 case for expanded automation is built from production data, not assumption.
+**How AI and humans work together**   
+Our principle is simple: the AI drafts, a human decides. The agent or adjuster confirms, corrects, and owns the final call – and every correction feeds back to make the model better. 
 
-## Risks & Mitigations
+* It can approve, but it can't deny. Every denial needs a person and a written reason.  
+* It flags fraud; it never refers. A person makes that call.  
+* It can't rubber-stamp itself. Instant approvals on big claims route to QA, and we blind-sample AI approvals for second review.  
+* Policyholders always know when AI was involved, get a plain-language explanation, and can ask for a human to take another look.  
+  ---
 
-- **Model bias across vehicle tier.** AI may underestimate damage on lower-value vehicles and harm lower-income claimants. *Mitigation:* segmented eval metrics by vehicle MSRP bucket + make/model, with predefined disparity thresholds that gate model updates and trigger retrains.
-- **Auto-deny / wrongful denial risk.** *Mitigation:* asymmetric routing (auto-*approve* only, never auto-deny), mandatory written rationale on every denial, claimant-facing recourse path.
-- **Fraud false accusation.** *Mitigation:* AI signals are advisory only; human-only SIU referral; adjuster must record the indicator they acted on.
-- **Photo quality dependency on upstream FNOL.** Low-quality photos limit AI confidence. *Mitigation:* we own a feedback signal back to FNOL — auto-request specific additional photos when assessment confidence is gated by photo limitations. We do not redesign FNOL.
-- **Vendor lock to commodity damage AI.** *Mitigation:* the orchestration layer is vendor-agnostic. Swapping CCC for Tractable (or to a carrier-trained internal model in v2) is a configuration change, not a rewrite.
-
-## What's NOT in v1 (named for v2 with rationale)
-
-- **Total-loss valuation** — needs vehicle market-data integration (Manheim / MMR / Black Book) and a cash-settlement workflow. v2.
-- **Adjuster workload dashboard + auto-assignment** — operationally important but not load-bearing for the orchestration thesis. v2.
-- **Bias monitoring dashboard** — backend instrumentation ships in v1; the dashboard surface ships v2.
-- **Cost-database integration** (Mitchell / CCC / Audatex line-item rates) — v1 relies on vendor output + model judgment against the carrier's negotiated rate sheet; v2 brings in normalized lookups for cleaner audit trails.
-- **ADAS/EV-aware estimating depth** — vehicle complexity is rising fast (CCC Q4 2024: EV cycle time 37.6 days vs ICE 32.3; calibrations on 56.5% of Q1 2025 DRP supplements), but the v1 prototype focuses on the broad case and flags ADAS/EV claims for adjuster review.
-- **Claimant-facing comms / status updates** — owned by the carrier's existing policyholder app; our scope ends at authorization.
+1. Five Sigma, *"Exclusive Data: A Glimpse into Claims Adjusters' Day-to-Day Workloads"* (2023). [fivesigmalabs.com](http://fivesigmalabs.com)  
+2. Mitchell International, Auto Physical Damage Industry Trends Reports (2017–2018). [mitchell.com](http://mitchell.com)  
+3. J.D. Power 2024 U.S. Auto Claims Satisfaction Study (22.3-day average repair cycle). [jdpower.com](http://jdpower.com)  
+4. EY, *"Tackling indemnity and leakage in P\&C litigated claims"* (2025). [ey.com](http://ey.com)  
+5. J.D. Power 2024 U.S. Auto Claims Satisfaction Study. [jdpower.com](http://jdpower.com)  
+6. CCC Intelligent Solutions (Estimate-STP at 7 of the top 10 US carriers),(2023). [repairerdrivennews.com](http://repairerdrivennews.com)  
+7. Tractable partnership announcements — GEICO (2021), The Hartford (2021), American Family / *Fortune* (2022).

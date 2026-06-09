@@ -24,17 +24,6 @@ export function PersonaToggle() {
     <div className="inline-flex rounded-md border border-slate-800 bg-slate-900 p-1 text-xs">
       <button
         type="button"
-        onClick={() => setPersona("adjuster")}
-        className={`px-3 py-1.5 rounded transition-colors ${
-          persona === "adjuster"
-            ? "bg-slate-700 text-white"
-            : "text-slate-400 hover:text-slate-200"
-        }`}
-      >
-        Senior adjuster
-      </button>
-      <button
-        type="button"
         onClick={() => setPersona("agent")}
         className={`px-3 py-1.5 rounded transition-colors ${
           persona === "agent"
@@ -43,6 +32,17 @@ export function PersonaToggle() {
         }`}
       >
         Claims agent
+      </button>
+      <button
+        type="button"
+        onClick={() => setPersona("adjuster")}
+        className={`px-3 py-1.5 rounded transition-colors ${
+          persona === "adjuster"
+            ? "bg-slate-700 text-white"
+            : "text-slate-400 hover:text-slate-200"
+        }`}
+      >
+        Senior adjuster
       </button>
     </div>
   );
