@@ -5,7 +5,7 @@ import type { Persona } from "@/data/types";
 
 export function getPersonaFromSearch(params: URLSearchParams): Persona {
   const value = params.get("persona");
-  return value === "agent" ? "agent" : "adjuster";
+  return value === "adjuster" ? "adjuster" : "agent";
 }
 
 export function PersonaToggle() {
