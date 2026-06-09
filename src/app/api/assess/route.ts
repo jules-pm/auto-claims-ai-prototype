@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIAssessment } from "@/data/types";
 
+// The live vision call runs ~15s; allow up to 60s so the serverless function
+// doesn't time out before the model responds.
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 const assessmentTool = {
   name: "submit_assessment",
   description:
